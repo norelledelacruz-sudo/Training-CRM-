@@ -38,18 +38,10 @@ function formatTime(iso: string) {
   });
 }
 
-const senderBorder: Record<ScenarioMessage["senderType"], string> = {
-  customer: "border-l-blue-500",
-  agent: "border-l-neutral-400",
-  cleaner: "border-l-green-500",
-  system: "border-l-red-500",
-};
-
-const senderTag: Record<ScenarioMessage["senderType"], { label: string; className: string }> = {
-  customer: { label: "CUST", className: "bg-blue-600 text-white" },
-  agent: { label: "AGENT", className: "bg-neutral-700 text-white" },
-  cleaner: { label: "CP", className: "bg-green-600 text-white" },
-  system: { label: "SYS", className: "bg-red-600 text-white" },
+const CHANNEL_WORD: Record<ScenarioMessage["channel"], string> = {
+  sms: "texted",
+  email: "emailed",
+  system: "logged",
 };
 
 const SENDER_LEGEND_COLORS = [
@@ -63,10 +55,20 @@ const SENDER_LEGEND_COLORS = [
   "text-rose-700",
 ];
 
-function colorForSender(name: string): string {
+function hashString(name: string): number {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return SENDER_LEGEND_COLORS[hash % SENDER_LEGEND_COLORS.length];
+  return hash;
+}
+
+function colorForSender(name: string): string {
+  return SENDER_LEGEND_COLORS[hashString(name) % SENDER_LEGEND_COLORS.length];
+}
+
+// A stable-looking 6-digit id per sender, purely cosmetic (mirrors the real
+// CRM's "<id> <name>" identity format) — not a real account/contact id.
+function pseudoIdFor(name: string): string {
+  return String(100000 + (hashString(name) % 900000));
 }
 
 type MessageTab = "all" | "actions" | "user_agent" | "from_user" | "from_agent" | "system" | "notes";
@@ -118,12 +120,16 @@ export function CrmView({
   const [chargeSubmitting, setChargeSubmitting] = useState(false);
 
   const [messageTab, setMessageTab] = useState<MessageTab>("all");
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
+  const [dateStartInput, setDateStartInput] = useState("");
+  const [dateEndInput, setDateEndInput] = useState("");
+  const [appliedDateStart, setAppliedDateStart] = useState("");
+  const [appliedDateEnd, setAppliedDateEnd] = useState("");
   const [senderFilter, setSenderFilter] = useState<string | null>(null);
 
   const messagesTopRef = useRef<HTMLDivElement>(null);
+  const messagesBottomRef = useRef<HTMLDivElement>(null);
   const resolvePanelRef = useRef<HTMLDivElement>(null);
+  const creditFormRef = useRef<HTMLDivElement>(null);
 
   const openedLogged = useRef(false);
   useEffect(() => {
@@ -144,6 +150,25 @@ export function CrmView({
     [thread]
   );
 
+  const tabCounts = useMemo(() => {
+    const counts: Record<MessageTab, number> = {
+      all: sortedThread.length,
+      actions: sortedThread.length,
+      user_agent: 0,
+      from_user: 0,
+      from_agent: 0,
+      system: 0,
+      notes: 0,
+    };
+    for (const m of sortedThread) {
+      if (m.senderType === "customer" || m.senderType === "agent") counts.user_agent++;
+      if (m.senderType === "customer") counts.from_user++;
+      if (m.senderType === "agent") counts.from_agent++;
+      if (m.senderType === "system") counts.system++;
+    }
+    return counts;
+  }, [sortedThread]);
+
   const filteredThread = useMemo(() => {
     return sortedThread.filter((m) => {
       if (senderFilter && m.sender !== senderFilter) return false;
@@ -153,11 +178,19 @@ export function CrmView({
       if (messageTab === "from_user" && m.senderType !== "customer") return false;
       if (messageTab === "from_agent" && m.senderType !== "agent") return false;
       if (messageTab === "notes") return false; // this scenario format has no internal-notes concept yet
-      if (dateStart && m.sentAt < new Date(dateStart).toISOString()) return false;
-      if (dateEnd && m.sentAt > new Date(`${dateEnd}T23:59:59`).toISOString()) return false;
+      if (appliedDateStart && m.sentAt < new Date(appliedDateStart).toISOString()) return false;
+      if (appliedDateEnd && m.sentAt > new Date(`${appliedDateEnd}T23:59:59`).toISOString())
+        return false;
       return true;
     });
-  }, [sortedThread, messageTab, dateStart, dateEnd, senderFilter]);
+  }, [sortedThread, messageTab, appliedDateStart, appliedDateEnd, senderFilter]);
+
+  const csResponses = useMemo(
+    () => messages.filter((m) => m.senderType === "agent").length,
+    [messages]
+  );
+  const totalCredits = credits.reduce((sum, c) => sum + c.amount, 0);
+  const totalManualCharges = jobDetails.disputeInfo.manualChargesOnFile + charges.length;
 
   async function sendReply() {
     if (!reply.trim() || sending) return;
@@ -227,82 +260,65 @@ export function CrmView({
   const caseId = token.slice(0, 8).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-neutral-100 text-neutral-900">
+    <div className="min-h-screen bg-neutral-100 pb-16 text-neutral-900">
       <div className="h-1 bg-amber-400" />
 
       {/* Slim chrome bar — cosmetic, mirrors the real CRM's top strip */}
-      <div className="flex items-center justify-between border-b border-neutral-300 bg-neutral-900 px-4 py-1 text-xs text-neutral-300">
-        <div className="flex items-center gap-2">
-          <span aria-hidden>🔍</span>
-          <span className="text-neutral-500">Search (not available in training mode)</span>
+      <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-1.5 text-xs text-neutral-500">
+        <span className="rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-medium text-white">
+          Online
+        </span>
+        <span aria-hidden className="text-neutral-400">
+          🔍
+        </span>
+        <span>{thread.length} messages this case</span>
+        <div className="ml-auto flex items-center gap-1">
+          <div className="h-6 w-40 rounded border border-neutral-300 bg-white" />
+          <span className="text-neutral-400">▾</span>
         </div>
-        <div className="font-mono">{thread.length} messages this case</div>
       </div>
 
-      <header className="flex flex-wrap items-start justify-between gap-2 border-b border-neutral-300 bg-white px-6 py-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg font-semibold">{customerName}</span>
-            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-medium tracking-wide text-white">
-              HOMEAGLOW
-            </span>
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">
-              {jobDetails.job.price} job
-            </span>
-            {jobDetails.disputeInfo.manualChargesOnFile > 0 && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800">
-                {jobDetails.disputeInfo.manualChargesOnFile} manual charges on file
+      {/* Header: customer identity (left) + Clear Actions toolbar (right), same row */}
+      <div className="border-b border-neutral-300 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-lg font-semibold">{customerName}</span>
+              <span className="rounded bg-green-600 px-2 py-0.5 text-xs font-medium text-white">
+                Realized Net Revenue {jobDetails.job.price}
               </span>
-            )}
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600">
-              ★ {jobDetails.rating.toFixed(1)}
-            </span>
-            <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[10px] font-medium text-neutral-500">
-              Unsubscribed
-            </span>
+              <span className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white">
+                Homeaglow
+              </span>
+              <span className="rounded bg-red-400 px-2 py-0.5 text-xs font-medium text-white">
+                {csResponses} CS Responses
+              </span>
+              <span className="rounded bg-neutral-400 px-2 py-0.5 text-xs font-medium text-white">
+                Unsubscribed
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-neutral-500">
+              {customerPhone} {customerEmail ? `· ${customerEmail}` : ""}
+            </div>
           </div>
-          <div className="mt-1 text-xs text-neutral-500">
-            {customerPhone} {customerEmail ? `· ${customerEmail}` : ""}
-          </div>
-          <div className="mt-1 flex gap-1">
+          <div className="flex gap-2">
             <button
-              disabled
-              title="Not available in training mode"
-              className="cursor-not-allowed rounded border border-neutral-300 px-1.5 py-0.5 text-[10px] text-neutral-400"
-            >
-              NCW Login
-            </button>
-            <button
-              disabled
-              title="Not available in training mode"
-              className="cursor-not-allowed rounded border border-neutral-300 px-1.5 py-0.5 text-[10px] text-neutral-400"
-            >
-              OCW Login
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col items-end gap-1">
-          <div className="text-right text-xs text-neutral-500">
-            <div className="font-mono">Case {caseId}</div>
-            <div>Training session · {traineeName}</div>
-          </div>
-          <div className="flex gap-1">
-            <button
-              onClick={() => resolvePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
-              className="rounded bg-red-700 px-3 py-1 text-xs font-medium text-white hover:bg-red-800"
+              onClick={() =>
+                resolvePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+              className="rounded bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800"
             >
               Clear {resolved ? 0 : 1} Actions &amp; Next
             </button>
             <button
               title="Not available in training mode"
-              className="rounded border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+              className="rounded border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
             >
               Clear {resolved ? 0 : 1} Actions
             </button>
           </div>
         </div>
-      </header>
+      </div>
 
       <button
         onClick={() => messagesTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
@@ -311,396 +327,437 @@ export function CrmView({
         ▼ Scroll to Oldest Action ▼
       </button>
 
-      <div
-        className={`px-6 py-2 text-center text-sm font-medium text-white ${
-          resolved ? "bg-green-700" : "bg-red-700"
-        }`}
-      >
-        {resolved
-          ? "✓ Case resolved — nice work. Your trainer will review this session."
-          : "This case needs action — reply to the customer and resolve it below."}
-      </div>
-
-      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-4 md:grid-cols-[2fr_1fr]">
-        <section className="flex flex-col gap-3">
-          <div className="rounded border border-neutral-300 bg-white">
-            <div className="border-b border-neutral-200 px-4 py-2">
-              <div className="mb-2 text-sm font-medium text-neutral-600">
-                Filter Msgs By Date Range
+      <div className="mx-auto max-w-6xl p-4">
+        {/* Top summary section: two columns, header content only */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <div className="rounded border border-neutral-300 bg-white p-3 text-sm">
+              <div className="flex items-center gap-1 font-medium text-red-700">
+                <span aria-hidden>⚠</span>
+                <span>{jobDetails.disputeInfo.impliedFeePerDispute} implied fee per dispute</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <input
-                  type="date"
-                  value={dateStart}
-                  onChange={(e) => setDateStart(e.target.value)}
-                  className="rounded border border-neutral-300 p-1"
-                />
-                <span className="text-neutral-400">to</span>
-                <input
-                  type="date"
-                  value={dateEnd}
-                  onChange={(e) => setDateEnd(e.target.value)}
-                  className="rounded border border-neutral-300 p-1"
-                />
-                {(dateStart || dateEnd) && (
+              <div className="mt-1 flex items-center justify-between text-xs">
+                <span className="text-blue-600">{totalManualCharges} Manual Charges</span>
+                <span>
+                  ${totalCredits.toFixed(2)}{" "}
                   <button
-                    onClick={() => {
-                      setDateStart("");
-                      setDateEnd("");
-                    }}
-                    className="rounded border border-neutral-300 px-2 py-1 text-neutral-500 hover:bg-neutral-50"
+                    onClick={() => creditFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                    className="text-blue-600 hover:underline"
                   >
-                    Clear
+                    Credit
                   </button>
-                )}
+                </span>
               </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-medium ${
+                    disputeStatus === "none"
+                      ? "bg-neutral-100 text-neutral-500"
+                      : disputeStatus === "disputed"
+                        ? "bg-red-100 text-red-800"
+                        : "bg-green-100 text-green-800"
+                  }`}
+                >
+                  {disputeStatus}
+                </span>
+                <button
+                  disabled={resolved || disputeUpdating || disputeStatus === "disputed"}
+                  onClick={() => updateDispute("disputed")}
+                  className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40 hover:bg-neutral-50"
+                >
+                  Mark disputed
+                </button>
+                <button
+                  disabled={resolved || disputeUpdating || disputeStatus === "resolved"}
+                  onClick={() => updateDispute("resolved")}
+                  className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40 hover:bg-neutral-50"
+                >
+                  Mark resolved
+                </button>
+              </div>
+            </div>
 
-              <div className="mt-2 flex flex-wrap gap-1 text-xs">
-                {MESSAGE_TABS.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setMessageTab(t.id)}
-                    className={`rounded px-2 py-1 ${
-                      messageTab === t.id
-                        ? "bg-neutral-800 text-white"
-                        : "border border-neutral-300 text-neutral-600 hover:bg-neutral-50"
+            <div ref={creditFormRef} className="rounded border border-neutral-300 bg-white p-3 text-sm">
+              <div className="mb-2 font-medium text-neutral-600">Credits &amp; charges</div>
+              {credits.map((c, i) => (
+                <div key={`credit-${i}`} className="mb-1 flex justify-between text-xs text-green-800">
+                  <span>+ {c.reason || "credit"}</span>
+                  <span>${c.amount.toFixed(2)}</span>
+                </div>
+              ))}
+              {charges.map((c, i) => (
+                <div key={`charge-${i}`} className="mb-1 flex justify-between text-xs text-red-800">
+                  <span>− {c.reason || "charge"}</span>
+                  <span>${c.amount.toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="mt-1 flex gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Amount"
+                  disabled={resolved}
+                  className="w-20 rounded border border-neutral-300 p-1 text-xs"
+                  value={creditAmount}
+                  onChange={(e) => setCreditAmount(e.target.value)}
+                />
+                <input
+                  placeholder="Reason"
+                  disabled={resolved}
+                  className="flex-1 rounded border border-neutral-300 p-1 text-xs"
+                  value={creditReason}
+                  onChange={(e) => setCreditReason(e.target.value)}
+                />
+                <button
+                  disabled={resolved || creditSubmitting || !Number(creditAmount)}
+                  onClick={issueCredit}
+                  className="rounded bg-green-700 px-2 text-xs text-white disabled:opacity-40"
+                >
+                  Credit
+                </button>
+              </div>
+              <div className="mt-1 flex gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Amount"
+                  disabled={resolved}
+                  className="w-20 rounded border border-neutral-300 p-1 text-xs"
+                  value={chargeAmount}
+                  onChange={(e) => setChargeAmount(e.target.value)}
+                />
+                <input
+                  placeholder="Reason"
+                  disabled={resolved}
+                  className="flex-1 rounded border border-neutral-300 p-1 text-xs"
+                  value={chargeReason}
+                  onChange={(e) => setChargeReason(e.target.value)}
+                />
+                <button
+                  disabled={resolved || chargeSubmitting || !Number(chargeAmount)}
+                  onClick={addCharge}
+                  className="rounded bg-neutral-800 px-2 text-xs text-white disabled:opacity-40"
+                >
+                  Charge
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-neutral-300 bg-white p-2 text-xs">
+              <span className="rounded bg-amber-300 px-2 py-0.5 font-medium text-amber-900">
+                Assigned to {traineeName} (trainee)
+              </span>
+              <div className="flex items-center gap-2 text-neutral-500">
+                <span className="font-mono">Case {caseId}</span>
+                <button
+                  disabled
+                  title="Not available in training mode"
+                  className="cursor-not-allowed rounded border border-neutral-300 px-1.5 py-0.5 text-neutral-400"
+                >
+                  NCW Login
+                </button>
+                <button
+                  disabled
+                  title="Not available in training mode"
+                  className="cursor-not-allowed rounded border border-neutral-300 px-1.5 py-0.5 text-neutral-400"
+                >
+                  OCW Login
+                </button>
+                <button
+                  onClick={() =>
+                    resolvePanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+                  }
+                  className="rounded border border-neutral-300 px-2 py-0.5 hover:bg-neutral-50"
+                >
+                  Do
+                </button>
+                <button
+                  onClick={() =>
+                    messagesTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
+                  className="rounded border border-neutral-300 px-2 py-0.5 hover:bg-neutral-50"
+                >
+                  View
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded border border-neutral-300 bg-white p-3 text-sm">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1 font-mono font-semibold text-neutral-700">
+                  FC {jobDetails.membership.code}
+                  <span
+                    title="Fixed Cleaning membership — a recurring Homeaglow cleaning plan"
+                    className="cursor-help text-neutral-400"
+                  >
+                    ⓘ
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span
+                    className={`rounded px-2 py-0.5 text-xs font-medium ${
+                      membershipStatus === "active"
+                        ? "bg-green-100 text-green-800"
+                        : membershipStatus === "paused"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-neutral-200 text-neutral-600"
                     }`}
                   >
-                    {t.label}
+                    {membershipStatus}
+                  </span>
+                  <button
+                    title="Not available in training mode"
+                    className="cursor-not-allowed text-xs text-blue-600 underline decoration-dotted"
+                  >
+                    edit
+                  </button>
+                  <button
+                    onClick={() => setShowAllMembership((v) => !v)}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Show All
+                  </button>
+                </span>
+              </div>
+              <div className="text-xs text-neutral-500">
+                Paid thru {jobDetails.membership.paidThru} ({jobDetails.membership.paidMonths} mo)
+              </div>
+              {showAllMembership && (
+                <div className="mt-1 rounded bg-neutral-50 p-2 font-mono text-[11px] text-neutral-500">
+                  {jobDetails.membership.paidMonths} consecutive paid months on{" "}
+                  {jobDetails.membership.code}, currently {membershipStatus}.
+                </div>
+              )}
+              <div className="mt-2 flex gap-1">
+                {MEMBERSHIP_STATUSES.map((s) => (
+                  <button
+                    key={s}
+                    disabled={resolved || membershipUpdating || s === membershipStatus}
+                    onClick={() => updateMembership(s)}
+                    className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40 hover:bg-neutral-50"
+                  >
+                    Set {s}
                   </button>
                 ))}
               </div>
-
-              {distinctSenders.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                  {distinctSenders.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setSenderFilter((cur) => (cur === s ? null : s))}
-                      className={`${colorForSender(s)} ${
-                        senderFilter === s ? "underline decoration-2" : "hover:underline"
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
-            <div ref={messagesTopRef} className="max-h-[55vh] space-y-2 overflow-y-auto p-4">
-              {filteredThread.length === 0 && (
-                <p className="py-6 text-center text-xs text-neutral-400">
-                  No messages match this filter.
-                </p>
-              )}
-              {filteredThread.map((m, i) => (
-                <div
-                  key={i}
-                  className={`rounded-r border border-l-4 border-neutral-200 bg-white px-3 py-2 text-sm ${senderBorder[m.senderType]}`}
-                >
-                  <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
-                    <span className="flex items-center gap-2">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${senderTag[m.senderType].className}`}
-                      >
-                        {senderTag[m.senderType].label}
-                      </span>
-                      <span className={`font-medium ${colorForSender(m.sender)}`}>{m.sender}</span>
-                      <span className="rounded border border-neutral-300 px-1.5 py-0.5 font-mono text-[10px] uppercase text-neutral-500">
-                        {m.channel}
-                      </span>
-                    </span>
-                    <span className="font-mono">{formatTime(m.sentAt)}</span>
-                  </div>
-                  <div className={m.senderType === "system" ? "font-mono text-xs text-neutral-600" : ""}>
-                    {m.body}
-                  </div>
-                </div>
-              ))}
+            <div className="rounded border border-neutral-300 bg-white p-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span>★ {jobDetails.rating.toFixed(1)}</span>
+                <span className="rounded bg-green-100 px-2 py-0.5 text-green-800">
+                  {jobDetails.job.status}
+                </span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 text-blue-800">
+                  {totalManualCharges} Invoiced
+                </span>
+              </div>
+              <div className="mt-1 text-neutral-500">
+                {jobDetails.job.cleanerName} · {jobDetails.job.date} · {jobDetails.job.duration} ·{" "}
+                {jobDetails.job.price}
+              </div>
             </div>
           </div>
+        </div>
 
-          <div className="rounded border border-neutral-300 bg-white p-3">
-            <div className="mb-2 text-sm font-medium text-neutral-600">Reply</div>
-            <textarea
-              className="w-full resize-none rounded border border-neutral-300 p-2 text-sm"
-              rows={3}
-              placeholder="Reply to the customer…"
-              value={reply}
-              disabled={resolved}
-              onChange={(e) => setReply(e.target.value)}
+        {/* Filter + tabs + sender legend — full width */}
+        <div className="mt-4 rounded border border-neutral-300 bg-white p-4">
+          <div className="mb-2 text-sm font-medium text-neutral-600">Filter Msgs By Date Range</div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <input
+              type="text"
+              placeholder="Start Date mm/dd/yyyy"
+              value={dateStartInput}
+              onChange={(e) => setDateStartInput(e.target.value)}
+              className="rounded border border-neutral-300 p-1.5"
             />
-            <div className="mt-2 flex justify-end">
-              <button
-                className="rounded bg-neutral-800 px-4 py-1.5 text-sm text-white disabled:opacity-40"
-                onClick={sendReply}
-                disabled={resolved || sending || !reply.trim()}
-              >
-                {sending ? "Sending…" : "Send reply"}
-              </button>
-            </div>
-          </div>
-
-          <div
-            ref={resolvePanelRef}
-            className="rounded border border-l-4 border-neutral-300 border-l-red-600 bg-white p-4"
-          >
-            <div className="mb-2 text-sm font-medium text-neutral-600">Resolve this case</div>
-            <div className="space-y-1">
-              {resolutionOptions.map((opt) => (
-                <label
-                  key={opt.id}
-                  className={`flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-sm ${
-                    resolutionId === opt.id
-                      ? "border-red-300 bg-red-50"
-                      : "border-transparent hover:bg-neutral-50"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="resolution"
-                    value={opt.id}
-                    disabled={resolved}
-                    checked={resolutionId === opt.id}
-                    onChange={() => setResolutionId(opt.id)}
-                  />
-                  {opt.label}
-                </label>
-              ))}
-            </div>
-            <div className="mt-3 flex justify-end">
-              <button
-                className="rounded bg-red-700 px-4 py-1.5 text-sm text-white disabled:opacity-40"
-                onClick={submitResolution}
-                disabled={resolved || resolving || !resolutionId}
-              >
-                {resolved ? "Case closed" : resolving ? "Submitting…" : "Do"}
-              </button>
-            </div>
-            {resolved && (
-              <div className="mt-3 rounded bg-green-50 px-3 py-2 text-sm text-green-800">
-                Submitted. Your trainer will review this session.
-              </div>
-            )}
-          </div>
-        </section>
-
-        <aside className="space-y-3">
-          <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-1 font-mono font-semibold text-neutral-700">
-                FC {jobDetails.membership.code}
-                <span
-                  title="Fixed Cleaning membership — a recurring Homeaglow cleaning plan"
-                  className="cursor-help text-neutral-400"
-                >
-                  ⓘ
-                </span>
-              </span>
-              <span className="flex items-center gap-2">
-                <span
-                  className={`rounded px-2 py-0.5 text-xs font-medium ${
-                    membershipStatus === "active"
-                      ? "bg-green-100 text-green-800"
-                      : membershipStatus === "paused"
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-neutral-200 text-neutral-600"
-                  }`}
-                >
-                  {membershipStatus}
-                </span>
-                <button
-                  title="Not available in training mode"
-                  className="cursor-not-allowed text-xs text-blue-600 underline decoration-dotted"
-                >
-                  edit
-                </button>
-              </span>
-            </div>
-            <div className="text-xs text-neutral-500">
-              Paid thru {jobDetails.membership.paidThru} ({jobDetails.membership.paidMonths} mo)
-            </div>
+            <input
+              type="text"
+              placeholder="End Date mm/dd/yyyy"
+              value={dateEndInput}
+              onChange={(e) => setDateEndInput(e.target.value)}
+              className="rounded border border-neutral-300 p-1.5"
+            />
             <button
-              onClick={() => setShowAllMembership((v) => !v)}
-              className="mt-1 text-xs text-blue-600 hover:underline"
+              onClick={() => {
+                setAppliedDateStart(dateStartInput);
+                setAppliedDateEnd(dateEndInput);
+              }}
+              className="rounded bg-neutral-800 px-3 py-1.5 text-white hover:bg-neutral-700"
             >
-              {showAllMembership ? "Hide history" : "Show All"}
+              Go
             </button>
-            {showAllMembership && (
-              <div className="mt-1 rounded bg-neutral-50 p-2 font-mono text-[11px] text-neutral-500">
-                {jobDetails.membership.paidMonths} consecutive paid months on {jobDetails.membership.code},
-                currently {membershipStatus}.
-              </div>
+            {(appliedDateStart || appliedDateEnd) && (
+              <button
+                onClick={() => {
+                  setDateStartInput("");
+                  setDateEndInput("");
+                  setAppliedDateStart("");
+                  setAppliedDateEnd("");
+                }}
+                className="text-neutral-500 hover:underline"
+              >
+                Clear
+              </button>
             )}
-            <div className="mt-2 flex gap-1">
-              {MEMBERSHIP_STATUSES.map((s) => (
-                <button
-                  key={s}
-                  disabled={resolved || membershipUpdating || s === membershipStatus}
-                  onClick={() => updateMembership(s)}
-                  className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40 hover:bg-neutral-50"
-                >
-                  Set {s}
-                </button>
-              ))}
-            </div>
-            <div className="mt-2 border-t border-neutral-100 pt-2 text-xs">
-              <span className="rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-800">
-                Assigned to {traineeName} (trainee)
-              </span>
-            </div>
           </div>
 
-          <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-medium text-neutral-600">Job</span>
-              <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                {jobDetails.job.status}
-              </span>
-            </div>
-            <dl className="space-y-1 font-mono text-xs">
-              <div className="flex justify-between">
-                <dt className="font-sans text-neutral-500">Cleaner</dt>
-                <dd>{jobDetails.job.cleanerName}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="font-sans text-neutral-500">Date</dt>
-                <dd>{jobDetails.job.date}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="font-sans text-neutral-500">Duration</dt>
-                <dd>{jobDetails.job.duration}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="font-sans text-neutral-500">Price</dt>
-                <dd>{jobDetails.job.price}</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-medium text-neutral-600">Dispute</span>
-              <span
-                className={`rounded px-2 py-0.5 text-xs font-medium ${
-                  disputeStatus === "none"
-                    ? "bg-neutral-100 text-neutral-500"
-                    : disputeStatus === "disputed"
-                      ? "bg-red-100 text-red-800"
-                      : "bg-green-100 text-green-800"
+          <div className="mt-2 flex flex-wrap gap-3 text-xs">
+            {MESSAGE_TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setMessageTab(t.id)}
+                className={`flex items-center gap-1 pb-0.5 ${
+                  messageTab === t.id
+                    ? "border-b-2 border-neutral-800 font-medium text-neutral-900"
+                    : "text-neutral-500 hover:text-neutral-800"
                 }`}
               >
-                {disputeStatus}
-              </span>
-            </div>
-            <div className="rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-800">
-              {jobDetails.disputeInfo.impliedFeePerDispute} implied fee per dispute
-            </div>
-            <div className="mt-1 flex justify-between text-xs">
-              <span className="text-neutral-500">Manual charges</span>
-              <span>
-                {jobDetails.disputeInfo.manualChargesOnFile} on file
-                {charges.length > 0 ? ` (+${charges.length} this session)` : ""}
-              </span>
-            </div>
-            <div className="mt-2 flex gap-1">
-              <button
-                disabled={resolved || disputeUpdating || disputeStatus === "disputed"}
-                onClick={() => updateDispute("disputed")}
-                className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40"
-              >
-                Mark disputed
+                {t.label}
+                {tabCounts[t.id] > 0 && t.id !== "all" && (
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] text-white">
+                    {tabCounts[t.id]}
+                  </span>
+                )}
               </button>
-              <button
-                disabled={resolved || disputeUpdating || disputeStatus === "resolved"}
-                onClick={() => updateDispute("resolved")}
-                className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40"
-              >
-                Mark resolved
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
-            <div className="mb-2 font-medium text-neutral-600">Issue a credit</div>
-            {credits.map((c, i) => (
-              <div key={i} className="mb-1 flex justify-between text-xs text-green-800">
-                <span>{c.reason || "credit"}</span>
-                <span>${c.amount.toFixed(2)}</span>
-              </div>
             ))}
-            <div className="flex gap-1">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="Amount"
-                disabled={resolved}
-                className="w-20 rounded border border-neutral-300 p-1 text-xs"
-                value={creditAmount}
-                onChange={(e) => setCreditAmount(e.target.value)}
-              />
-              <input
-                placeholder="Reason"
-                disabled={resolved}
-                className="flex-1 rounded border border-neutral-300 p-1 text-xs"
-                value={creditReason}
-                onChange={(e) => setCreditReason(e.target.value)}
-              />
-              <button
-                disabled={resolved || creditSubmitting || !Number(creditAmount)}
-                onClick={issueCredit}
-                className="rounded bg-neutral-800 px-2 text-xs text-white disabled:opacity-40"
-              >
-                Add
-              </button>
-            </div>
           </div>
 
-          <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
-            <div className="mb-2 font-medium text-neutral-600">Add a manual charge</div>
-            {charges.map((c, i) => (
-              <div key={i} className="mb-1 flex justify-between text-xs text-red-800">
-                <span>{c.reason || "charge"}</span>
-                <span>${c.amount.toFixed(2)}</span>
-              </div>
+          {distinctSenders.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-neutral-100 pt-2 text-xs">
+              <span className="font-medium text-neutral-700">Homeaglow</span>
+              {distinctSenders.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSenderFilter((cur) => (cur === s ? null : s))}
+                  className={`${colorForSender(s)} ${
+                    senderFilter === s ? "underline decoration-2" : "hover:underline"
+                  }`}
+                >
+                  {pseudoIdFor(s)} {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Message thread — full width, plain hairline rows */}
+        <div className="mt-2 rounded border border-neutral-300 bg-white">
+          <div ref={messagesTopRef} className="max-h-[55vh] divide-y divide-neutral-100 overflow-y-auto">
+            {filteredThread.length === 0 && (
+              <p className="py-6 text-center text-xs text-neutral-400">No messages match this filter.</p>
+            )}
+            {filteredThread.map((m, i) => {
+              const highlight =
+                m.senderType === "system"
+                  ? "bg-red-50"
+                  : m.senderType === "cleaner"
+                    ? "bg-green-50"
+                    : "";
+              return (
+                <div key={i} className={`px-4 py-2 text-sm ${highlight}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSenderFilter((cur) => (cur === m.sender ? null : m.sender))}
+                        className={`font-medium hover:underline ${colorForSender(m.sender)}`}
+                      >
+                        C {caseId} {m.sender}
+                      </button>
+                      <span className="text-xs text-neutral-400">{CHANNEL_WORD[m.channel]}</span>
+                    </div>
+                    <span className="font-mono text-xs text-neutral-400">{formatTime(m.sentAt)}</span>
+                  </div>
+                  <div className="mt-0.5 text-neutral-700">{m.body}</div>
+                </div>
+              );
+            })}
+            <div ref={messagesBottomRef} />
+          </div>
+        </div>
+
+        {/* Reply — full width */}
+        <div className="mt-3 rounded border border-neutral-300 bg-white p-3">
+          <div className="mb-2 text-sm font-medium text-neutral-600">Reply</div>
+          <textarea
+            className="w-full resize-none rounded border border-neutral-300 p-2 text-sm"
+            rows={3}
+            placeholder="Reply to the customer…"
+            value={reply}
+            disabled={resolved}
+            onChange={(e) => setReply(e.target.value)}
+          />
+          <div className="mt-2 flex justify-end">
+            <button
+              className="rounded bg-neutral-800 px-4 py-1.5 text-sm text-white disabled:opacity-40"
+              onClick={sendReply}
+              disabled={resolved || sending || !reply.trim()}
+            >
+              {sending ? "Sending…" : "Send reply"}
+            </button>
+          </div>
+        </div>
+
+        {/* Resolve — full width */}
+        <div
+          ref={resolvePanelRef}
+          className="mt-3 rounded border border-l-4 border-neutral-300 border-l-red-600 bg-white p-4"
+        >
+          <div className="mb-2 text-sm font-medium text-neutral-600">Resolve this case</div>
+          <div className="space-y-1">
+            {resolutionOptions.map((opt) => (
+              <label
+                key={opt.id}
+                className={`flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-sm ${
+                  resolutionId === opt.id
+                    ? "border-red-300 bg-red-50"
+                    : "border-transparent hover:bg-neutral-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="resolution"
+                  value={opt.id}
+                  disabled={resolved}
+                  checked={resolutionId === opt.id}
+                  onChange={() => setResolutionId(opt.id)}
+                />
+                {opt.label}
+              </label>
             ))}
-            <div className="flex gap-1">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                placeholder="Amount"
-                disabled={resolved}
-                className="w-20 rounded border border-neutral-300 p-1 text-xs"
-                value={chargeAmount}
-                onChange={(e) => setChargeAmount(e.target.value)}
-              />
-              <input
-                placeholder="Reason"
-                disabled={resolved}
-                className="flex-1 rounded border border-neutral-300 p-1 text-xs"
-                value={chargeReason}
-                onChange={(e) => setChargeReason(e.target.value)}
-              />
-              <button
-                disabled={resolved || chargeSubmitting || !Number(chargeAmount)}
-                onClick={addCharge}
-                className="rounded bg-neutral-800 px-2 text-xs text-white disabled:opacity-40"
-              >
-                Add
-              </button>
-            </div>
           </div>
+          <div className="mt-3 flex justify-end">
+            <button
+              className="rounded bg-red-700 px-4 py-1.5 text-sm text-white disabled:opacity-40"
+              onClick={submitResolution}
+              disabled={resolved || resolving || !resolutionId}
+            >
+              {resolved ? "Case closed" : resolving ? "Submitting…" : "Do"}
+            </button>
+          </div>
+          {resolved && (
+            <div className="mt-3 rounded bg-green-50 px-3 py-2 text-sm text-green-800">
+              Submitted. Your trainer will review this session.
+            </div>
+          )}
+        </div>
+      </div>
 
-          <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
-            <div className="flex justify-between">
-              <span className="text-neutral-500">Rating</span>
-              <span>★ {jobDetails.rating.toFixed(1)}</span>
-            </div>
-          </div>
-        </aside>
+      {/* Floating contact widget, bottom-right — mirrors the reference screenshot */}
+      <div className="fixed bottom-3 right-3 flex items-center gap-3 rounded border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs text-neutral-600 shadow-lg">
+        <span>
+          {customerEmail} {customerPhone ? `· ${customerPhone}` : ""}
+        </span>
+        <button
+          onClick={() => messagesBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })}
+          className="rounded bg-green-600 px-2 py-1 font-medium text-white hover:bg-green-700"
+        >
+          Scroll to Bottom
+        </button>
       </div>
     </div>
   );

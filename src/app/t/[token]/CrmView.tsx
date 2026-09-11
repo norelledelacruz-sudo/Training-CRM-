@@ -38,11 +38,18 @@ function formatTime(iso: string) {
   });
 }
 
-const senderStyles: Record<ScenarioMessage["senderType"], string> = {
-  customer: "bg-blue-50 border-blue-200",
-  agent: "bg-white border-neutral-200",
-  cleaner: "bg-green-50 border-green-200",
-  system: "bg-red-50 border-red-200 text-red-800 text-xs",
+const senderBorder: Record<ScenarioMessage["senderType"], string> = {
+  customer: "border-l-blue-500",
+  agent: "border-l-neutral-400",
+  cleaner: "border-l-green-500",
+  system: "border-l-red-500",
+};
+
+const senderTag: Record<ScenarioMessage["senderType"], { label: string; className: string }> = {
+  customer: { label: "CUST", className: "bg-blue-600 text-white" },
+  agent: { label: "AGENT", className: "bg-neutral-700 text-white" },
+  cleaner: { label: "CP", className: "bg-green-600 text-white" },
+  system: { label: "SYS", className: "bg-red-600 text-white" },
 };
 
 export function CrmView({
@@ -159,19 +166,50 @@ export function CrmView({
     setChargeSubmitting(false);
   }
 
+  const caseId = token.slice(0, 8).toUpperCase();
+
   return (
     <div className="min-h-screen bg-neutral-100 text-neutral-900">
-      <header className="flex items-center justify-between border-b border-neutral-300 bg-white px-6 py-3">
+      <div className="h-1 bg-amber-400" />
+
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 bg-white px-6 py-3">
         <div>
-          <div className="text-lg font-semibold">{customerName}</div>
-          <div className="text-xs text-neutral-500">
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-semibold">{customerName}</span>
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-medium tracking-wide text-white">
+              HOMEAGLOW
+            </span>
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-800">
+              {jobDetails.job.price} job
+            </span>
+            {jobDetails.disputeInfo.manualChargesOnFile > 0 && (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800">
+                {jobDetails.disputeInfo.manualChargesOnFile} manual charges on file
+              </span>
+            )}
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium text-neutral-600">
+              ★ {jobDetails.rating.toFixed(1)}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-neutral-500">
             {customerPhone} {customerEmail ? `· ${customerEmail}` : ""}
           </div>
         </div>
-        <div className="text-xs text-neutral-500">
-          Training session · {traineeName}
+        <div className="text-right text-xs text-neutral-500">
+          <div className="font-mono">Case {caseId}</div>
+          <div>Training session · {traineeName}</div>
         </div>
       </header>
+
+      <div
+        className={`px-6 py-2 text-center text-sm font-medium text-white ${
+          resolved ? "bg-green-600" : "bg-red-700"
+        }`}
+      >
+        {resolved
+          ? "✓ Case resolved — nice work. Your trainer will review this session."
+          : "This case needs action — reply to the customer and resolve it below."}
+      </div>
 
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 p-4 md:grid-cols-[2fr_1fr]">
         <section className="flex flex-col gap-3">
@@ -183,19 +221,32 @@ export function CrmView({
               {sortedThread.map((m, i) => (
                 <div
                   key={i}
-                  className={`rounded border px-3 py-2 text-sm ${senderStyles[m.senderType]}`}
+                  className={`rounded-r border border-l-4 border-neutral-200 bg-white px-3 py-2 text-sm ${senderBorder[m.senderType]}`}
                 >
                   <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
-                    <span className="font-medium text-neutral-700">{m.sender}</span>
-                    <span>{formatTime(m.sentAt)}</span>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${senderTag[m.senderType].className}`}
+                      >
+                        {senderTag[m.senderType].label}
+                      </span>
+                      <span className="font-medium text-neutral-700">{m.sender}</span>
+                      <span className="rounded border border-neutral-300 px-1.5 py-0.5 font-mono text-[10px] uppercase text-neutral-500">
+                        {m.channel}
+                      </span>
+                    </span>
+                    <span className="font-mono">{formatTime(m.sentAt)}</span>
                   </div>
-                  <div>{m.body}</div>
+                  <div className={m.senderType === "system" ? "font-mono text-xs text-neutral-600" : ""}>
+                    {m.body}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="rounded border border-neutral-300 bg-white p-3">
+            <div className="mb-2 text-sm font-medium text-neutral-600">Reply</div>
             <textarea
               className="w-full resize-none rounded border border-neutral-300 p-2 text-sm"
               rows={3}
@@ -215,15 +266,19 @@ export function CrmView({
             </div>
           </div>
 
-          <div className="rounded border border-neutral-300 bg-white p-4">
+          <div className="rounded border border-l-4 border-neutral-300 border-l-red-600 bg-white p-4">
             <div className="mb-2 text-sm font-medium text-neutral-600">
               Resolve this case
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               {resolutionOptions.map((opt) => (
                 <label
                   key={opt.id}
-                  className="flex items-center gap-2 text-sm"
+                  className={`flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-sm ${
+                    resolutionId === opt.id
+                      ? "border-red-300 bg-red-50"
+                      : "border-transparent hover:bg-neutral-50"
+                  }`}
                 >
                   <input
                     type="radio"
@@ -257,9 +312,11 @@ export function CrmView({
         <aside className="space-y-3">
           <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
             <div className="mb-2 flex items-center justify-between">
-              <span className="font-medium text-neutral-600">Membership</span>
+              <span className="font-mono font-semibold text-neutral-700">
+                FC {jobDetails.membership.code}
+              </span>
               <span
-                className={`rounded px-2 text-xs ${
+                className={`rounded px-2 py-0.5 text-xs font-medium ${
                   membershipStatus === "active"
                     ? "bg-green-100 text-green-800"
                     : membershipStatus === "paused"
@@ -270,10 +327,7 @@ export function CrmView({
                 {membershipStatus}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span>{jobDetails.membership.code}</span>
-            </div>
-            <div className="mt-1 text-xs text-neutral-500">
+            <div className="text-xs text-neutral-500">
               Paid thru {jobDetails.membership.paidThru} ({jobDetails.membership.paidMonths} mo)
             </div>
             <div className="mt-2 flex gap-1">
@@ -282,7 +336,7 @@ export function CrmView({
                   key={s}
                   disabled={resolved || membershipUpdating || s === membershipStatus}
                   onClick={() => updateMembership(s)}
-                  className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40"
+                  className="rounded border border-neutral-300 px-2 py-0.5 text-xs disabled:opacity-40 hover:bg-neutral-50"
                 >
                   Set {s}
                 </button>
@@ -292,25 +346,25 @@ export function CrmView({
 
           <div className="rounded border border-neutral-300 bg-white p-4 text-sm">
             <div className="mb-2 font-medium text-neutral-600">Job</div>
-            <dl className="space-y-1">
+            <dl className="space-y-1 font-mono text-xs">
               <div className="flex justify-between">
-                <dt className="text-neutral-500">Cleaner</dt>
+                <dt className="font-sans text-neutral-500">Cleaner</dt>
                 <dd>{jobDetails.job.cleanerName}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-neutral-500">Date</dt>
+                <dt className="font-sans text-neutral-500">Date</dt>
                 <dd>{jobDetails.job.date}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-neutral-500">Duration</dt>
+                <dt className="font-sans text-neutral-500">Duration</dt>
                 <dd>{jobDetails.job.duration}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-neutral-500">Price</dt>
+                <dt className="font-sans text-neutral-500">Price</dt>
                 <dd>{jobDetails.job.price}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-neutral-500">Status</dt>
+                <dt className="font-sans text-neutral-500">Status</dt>
                 <dd>{jobDetails.job.status}</dd>
               </div>
             </dl>
@@ -320,7 +374,7 @@ export function CrmView({
             <div className="mb-2 flex items-center justify-between">
               <span className="font-medium text-neutral-600">Dispute</span>
               <span
-                className={`rounded px-2 text-xs ${
+                className={`rounded px-2 py-0.5 text-xs font-medium ${
                   disputeStatus === "none"
                     ? "bg-neutral-100 text-neutral-500"
                     : disputeStatus === "disputed"

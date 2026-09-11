@@ -73,7 +73,7 @@ be deployed independently:
 Trainee links (`/t/<token>`) will then work for anyone with the URL — no
 Claude account, no Homeaglow account, no VPN.
 
-## Known limitations (Phase 1–3)
+## Known limitations (Phase 1–4)
 
 This is a multi-phase build-out. Deliberately out of scope for now:
 
@@ -82,11 +82,12 @@ This is a multi-phase build-out. Deliberately out of scope for now:
   Homeaglow email domain before wider rollout.
 - **Job details (cleaner, date, duration, price) are read-only context**,
   not actions a trainee takes — matches how CS actually uses that panel.
-  Membership status, credits, manual charges, and dispute status are now
-  fully interactive and gradable (Phase 3).
-- **Visual design is functional, not pixel-accurate** to the real CRM
-  screenshot. A polish pass comes after the interactive surface is complete
-  (Phase 4).
+  Membership status, credits, manual charges, and dispute status are fully
+  interactive and gradable (Phase 3).
+- **Visual design is styled to evoke the real CRM** (color-coded message
+  roles, status pills, an action banner) but is not a pixel-for-pixel clone
+  of the screenshot it's modeled on — it's an original layout in the same
+  spirit, not a recreation of Homeaglow's actual CRM markup.
 
 ## Project structure
 

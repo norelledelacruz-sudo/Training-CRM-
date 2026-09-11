@@ -85,6 +85,8 @@ const demoScenario = {
     expectedReplyKeywords: ["thank", "confirm"],
     notes:
       "The customer directly confirmed the cleaning was completed. No credit or escalation is warranted — the correct action is to thank the customer for confirming and close the case. Issuing a credit here would be an unnecessary payout; escalating wastes a specialist's time on a already-resolved question.",
+    expectedCredit: { shouldIssue: false },
+    expectedMembershipStatus: "active",
   },
 };
 

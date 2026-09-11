@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { MEMBERSHIP_STATUSES, DISPUTE_STATUSES } from "./types";
+
+export const expectedPayoutSchema = z.object({
+  shouldIssue: z.boolean(),
+  amount: z.coerce.number().min(0).optional(),
+});
 
 export const messageSchema = z.object({
   sender: z.string().min(1),
@@ -29,7 +35,7 @@ export const scenarioInputSchema = z
     jobDetails: z.object({
       membership: z.object({
         code: z.string().min(1),
-        status: z.string().min(1),
+        status: z.enum(MEMBERSHIP_STATUSES),
         paidThru: z.string().min(1),
         paidMonths: z.coerce.number().int().min(0),
       }),
@@ -54,6 +60,10 @@ export const scenarioInputSchema = z
       correctResolutionId: z.string().min(1),
       expectedReplyKeywords: z.array(z.string()),
       notes: z.string().min(1),
+      expectedMembershipStatus: z.enum(MEMBERSHIP_STATUSES).optional(),
+      expectedCredit: expectedPayoutSchema.optional(),
+      expectedCharge: expectedPayoutSchema.optional(),
+      expectedDisputeStatus: z.enum(DISPUTE_STATUSES).optional(),
     }),
   })
   .refine(

@@ -73,19 +73,20 @@ be deployed independently:
 Trainee links (`/t/<token>`) will then work for anyone with the URL — no
 Claude account, no Homeaglow account, no VPN.
 
-## Known limitations (Phase 1 + 2)
+## Known limitations (Phase 1–3)
 
 This is a multi-phase build-out. Deliberately out of scope for now:
 
 - **Trainer auth is a single shared password**, not per-trainer accounts.
   Fine for a small pilot group; replace with Google OAuth restricted to the
   Homeaglow email domain before wider rollout.
-- **Only the message thread and the resolution action are interactive.**
-  The membership/job/dispute side panel renders real scenario data but isn't
-  yet editable (no live FC status changes, manual charges, or credits) — a
-  later phase makes those fields configurable per scenario.
+- **Job details (cleaner, date, duration, price) are read-only context**,
+  not actions a trainee takes — matches how CS actually uses that panel.
+  Membership status, credits, manual charges, and dispute status are now
+  fully interactive and gradable (Phase 3).
 - **Visual design is functional, not pixel-accurate** to the real CRM
-  screenshot. A polish pass comes after the interactive surface is complete.
+  screenshot. A polish pass comes after the interactive surface is complete
+  (Phase 4).
 
 ## Project structure
 

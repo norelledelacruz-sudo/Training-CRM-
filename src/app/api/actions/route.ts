@@ -3,11 +3,19 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { autoGrade } from "@/lib/grading";
-import type { ScenarioAnswerKey } from "@/lib/types";
+import type { ScenarioAnswerKey, ScenarioJobDetails } from "@/lib/types";
 
 const actionSchema = z.object({
   token: z.string().min(1),
-  type: z.enum(["session_opened", "reply_sent", "resolution_selected"]),
+  type: z.enum([
+    "session_opened",
+    "reply_sent",
+    "resolution_selected",
+    "membership_updated",
+    "credit_issued",
+    "charge_added",
+    "dispute_status_changed",
+  ]),
   payload: z.record(z.string(), z.unknown()).default({}),
 });
 
@@ -45,9 +53,11 @@ export async function POST(req: NextRequest) {
     where: { traineeLinkId: link.id },
     orderBy: { createdAt: "asc" },
   });
+  const jobDetails = link.scenario.jobDetails as unknown as ScenarioJobDetails;
   const { flag, notes } = autoGrade(
     allActions,
-    link.scenario.answerKey as unknown as ScenarioAnswerKey
+    link.scenario.answerKey as unknown as ScenarioAnswerKey,
+    jobDetails.membership.status
   );
 
   await prisma.review.upsert({

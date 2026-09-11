@@ -8,7 +8,9 @@ import type {
   ScenarioJobDetails,
   ScenarioMessage,
   ResolutionOption,
+  MembershipStatus,
 } from "@/lib/types";
+import { MEMBERSHIP_STATUSES, DISPUTE_STATUSES } from "@/lib/types";
 
 export interface ScenarioFormInitial {
   id: string;
@@ -81,6 +83,27 @@ export function ScenarioForm({ initial }: { initial?: ScenarioFormInitial }) {
   );
   const [answerNotes, setAnswerNotes] = useState(initial?.answerKey.notes ?? "");
 
+  const [expectedMembershipStatus, setExpectedMembershipStatus] = useState(
+    initial?.answerKey.expectedMembershipStatus ?? ""
+  );
+  const [expectedDisputeStatus, setExpectedDisputeStatus] = useState(
+    initial?.answerKey.expectedDisputeStatus ?? ""
+  );
+  const [gradeCredit, setGradeCredit] = useState(Boolean(initial?.answerKey.expectedCredit));
+  const [creditShouldIssue, setCreditShouldIssue] = useState(
+    initial?.answerKey.expectedCredit?.shouldIssue ?? false
+  );
+  const [creditAmount, setCreditAmount] = useState(
+    initial?.answerKey.expectedCredit?.amount?.toString() ?? ""
+  );
+  const [gradeCharge, setGradeCharge] = useState(Boolean(initial?.answerKey.expectedCharge));
+  const [chargeShouldIssue, setChargeShouldIssue] = useState(
+    initial?.answerKey.expectedCharge?.shouldIssue ?? false
+  );
+  const [chargeAmount, setChargeAmount] = useState(
+    initial?.answerKey.expectedCharge?.amount?.toString() ?? ""
+  );
+
   function buildPayload() {
     return {
       slug,
@@ -105,6 +128,20 @@ export function ScenarioForm({ initial }: { initial?: ScenarioFormInitial }) {
           .map((k) => k.trim())
           .filter(Boolean),
         notes: answerNotes,
+        ...(expectedMembershipStatus && { expectedMembershipStatus }),
+        ...(expectedDisputeStatus && { expectedDisputeStatus }),
+        ...(gradeCredit && {
+          expectedCredit: {
+            shouldIssue: creditShouldIssue,
+            ...(creditShouldIssue && creditAmount && { amount: Number(creditAmount) }),
+          },
+        }),
+        ...(gradeCharge && {
+          expectedCharge: {
+            shouldIssue: chargeShouldIssue,
+            ...(chargeShouldIssue && chargeAmount && { amount: Number(chargeAmount) }),
+          },
+        }),
       },
     };
   }
@@ -215,14 +252,23 @@ export function ScenarioForm({ initial }: { initial?: ScenarioFormInitial }) {
             />
           </label>
           <label>
-            <span className="text-xs text-neutral-500">Membership status</span>
-            <input
+            <span className="text-xs text-neutral-500">Starting membership status</span>
+            <select
               className="mt-1 w-full rounded border border-neutral-300 p-1.5"
               value={jobDetails.membership.status}
               onChange={(e) =>
-                setJobDetails((j) => ({ ...j, membership: { ...j.membership, status: e.target.value } }))
+                setJobDetails((j) => ({
+                  ...j,
+                  membership: { ...j.membership, status: e.target.value as MembershipStatus },
+                }))
               }
-            />
+            >
+              {MEMBERSHIP_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             <span className="text-xs text-neutral-500">Paid thru</span>
@@ -516,6 +562,117 @@ export function ScenarioForm({ initial }: { initial?: ScenarioFormInitial }) {
             required
           />
         </label>
+
+        <div className="border-t border-neutral-200 pt-3">
+          <p className="mb-2 text-xs text-neutral-500">
+            Optional extra dimensions. Leave a dimension unset to skip grading it — a wrong
+            resolution still overrides everything to &quot;incorrect&quot;; these only soften an
+            otherwise-correct answer to &quot;partial&quot;.
+          </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm">
+              <span className="text-xs text-neutral-500">Expected membership status (optional)</span>
+              <select
+                className="mt-1 w-full rounded border border-neutral-300 p-1.5"
+                value={expectedMembershipStatus}
+                onChange={(e) => setExpectedMembershipStatus(e.target.value as MembershipStatus | "")}
+              >
+                <option value="">Don&apos;t grade</option>
+                {MEMBERSHIP_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs text-neutral-500">Expected dispute status (optional)</span>
+              <select
+                className="mt-1 w-full rounded border border-neutral-300 p-1.5"
+                value={expectedDisputeStatus}
+                onChange={(e) => setExpectedDisputeStatus(e.target.value as typeof expectedDisputeStatus)}
+              >
+                <option value="">Don&apos;t grade</option>
+                {DISPUTE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded border border-neutral-200 p-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={gradeCredit}
+                  onChange={(e) => setGradeCredit(e.target.checked)}
+                />
+                Grade credit issuance
+              </label>
+              {gradeCredit && (
+                <div className="mt-2 space-y-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={creditShouldIssue}
+                      onChange={(e) => setCreditShouldIssue(e.target.checked)}
+                    />
+                    A credit should be issued
+                  </label>
+                  {creditShouldIssue && (
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="Exact amount (optional)"
+                      className="w-full rounded border border-neutral-300 p-1.5 text-xs"
+                      value={creditAmount}
+                      onChange={(e) => setCreditAmount(e.target.value)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded border border-neutral-200 p-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={gradeCharge}
+                  onChange={(e) => setGradeCharge(e.target.checked)}
+                />
+                Grade manual charge
+              </label>
+              {gradeCharge && (
+                <div className="mt-2 space-y-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={chargeShouldIssue}
+                      onChange={(e) => setChargeShouldIssue(e.target.checked)}
+                    />
+                    A charge should be added
+                  </label>
+                  {chargeShouldIssue && (
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="Exact amount (optional)"
+                      className="w-full rounded border border-neutral-300 p-1.5 text-xs"
+                      value={chargeAmount}
+                      onChange={(e) => setChargeAmount(e.target.value)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </fieldset>
 
       <button

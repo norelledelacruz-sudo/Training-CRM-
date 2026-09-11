@@ -1,0 +1,88 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A fake customer-outreach case a trainer builds. All content here is
+/// synthetic and never derived from real customer data.
+model Scenario {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String?
+
+  // Synthetic case data rendered in the trainee CRM replica.
+  customerName  String
+  customerPhone String?
+  customerEmail String?
+  jobDetails    Json // panel data: cleaner name, job date/duration/price, FC status, etc.
+  messages      Json // seeded message thread: [{ sender, senderType, channel, body, sentAt }]
+
+  resolutionOptions Json // [{ id, label }] choices shown in the trainee's resolution ("Do") action
+  answerKey         Json // { correctResolutionId, expectedReplyKeywords?, notes }
+
+  archived Boolean @default(false)
+
+  traineeLinks TraineeLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A unique, unguessable link a trainer generates for one trainee attempt.
+/// The token itself is the only credential trainees ever need.
+model TraineeLink {
+  id          String  @id @default(cuid())
+  token       String  @unique
+  traineeName String
+  cohort      String?
+
+  scenario   Scenario @relation(fields: [scenarioId], references: [id])
+  scenarioId String
+
+  firstOpenedAt DateTime?
+  expiresAt     DateTime?
+
+  actions ActionLog[]
+  review  Review?
+
+  createdAt DateTime @default(now())
+}
+
+/// One logged trainee action within a session (reply sent, resolution chosen, etc).
+model ActionLog {
+  id   String @id @default(cuid())
+  type String // "session_opened" | "reply_sent" | "resolution_selected" | ...
+  payload Json
+
+  traineeLink   TraineeLink @relation(fields: [traineeLinkId], references: [id])
+  traineeLinkId String
+
+  createdAt DateTime @default(now())
+
+  @@index([traineeLinkId, createdAt])
+}
+
+/// Grading outcome for one trainee session: auto-computed, then trainer-confirmed.
+model Review {
+  id String @id @default(cuid())
+
+  traineeLink   TraineeLink @relation(fields: [traineeLinkId], references: [id])
+  traineeLinkId String      @unique
+
+  autoFlag  String // "correct" | "incorrect" | "partial" | "pending"
+  autoNotes String?
+
+  trainerFlag String? // "correct" | "incorrect" | null (no override yet)
+  trainerNotes String?
+  reviewedAt   DateTime?
+
+  updatedAt DateTime @updatedAt
+}

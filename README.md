@@ -65,36 +65,35 @@ be deployed independently:
 2. **Hosting**: push this repo to GitHub and import it into
    [Vercel](https://vercel.com). Set `DATABASE_URL` and `ADMIN_PASSWORD` as
    environment variables in the Vercel project settings.
-3. After the first deploy, run migrations and seed against the production
-   database once (`npx prisma migrate deploy`, then `npm run db:seed`, or
-   build your own scenarios via the trainer authoring UI once it exists —
-   see Phase 2 below).
+3. After the first deploy, run `npx prisma migrate deploy` once against the
+   production database to create the tables, then sign in at `/admin` and
+   build scenarios directly through the authoring UI (`Manage scenarios` →
+   `New scenario`) — no need to touch `prisma/seed.ts` in production.
 
 Trainee links (`/t/<token>`) will then work for anyone with the URL — no
 Claude account, no Homeaglow account, no VPN.
 
-## Known limitations (Phase 1)
+## Known limitations (Phase 1 + 2)
 
-This is the first build-out of a multi-phase plan. Deliberately out of scope
-for now:
+This is a multi-phase build-out. Deliberately out of scope for now:
 
 - **Trainer auth is a single shared password**, not per-trainer accounts.
   Fine for a small pilot group; replace with Google OAuth restricted to the
   Homeaglow email domain before wider rollout.
 - **Only the message thread and the resolution action are interactive.**
   The membership/job/dispute side panel renders real scenario data but isn't
-  yet editable (no live FC status changes, manual charges, or credits).
-- **Scenarios are seeded via a script**, not a trainer-facing UI. Phase 2
-  adds a form-based scenario/answer-key builder so trainers never touch
-  `prisma/seed.ts` directly.
+  yet editable (no live FC status changes, manual charges, or credits) — a
+  later phase makes those fields configurable per scenario.
 - **Visual design is functional, not pixel-accurate** to the real CRM
   screenshot. A polish pass comes after the interactive surface is complete.
 
 ## Project structure
 
 - `prisma/schema.prisma` — data model (`Scenario`, `TraineeLink`, `ActionLog`, `Review`)
-- `prisma/seed.ts` — the one demo scenario currently loaded
+- `prisma/seed.ts` — one demo scenario, loaded once via `npm run db:seed`;
+  further scenarios are created through the authoring UI, not this script
 - `src/app/t/[token]` — trainee-facing CRM replica (no auth)
 - `src/app/api/actions` — logs every trainee action and re-runs auto-grading
 - `src/app/admin` — trainer dashboard, link generation, session review (password-gated via `src/proxy.ts`)
+- `src/app/admin/scenarios` — scenario authoring UI (list, create, edit, archive)
 - `src/lib/grading.ts` — auto-grading logic (resolution + reply vs. answer key)

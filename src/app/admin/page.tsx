@@ -23,13 +23,27 @@ export default async function AdminPage() {
     <div className="mx-auto max-w-4xl space-y-8 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Training CRM — Trainer dashboard</h1>
-        <form action={signOut}>
-          <button className="text-sm text-neutral-500 hover:underline">Sign out</button>
-        </form>
+        <div className="flex items-center gap-4">
+          <Link href="/admin/scenarios" className="text-sm text-blue-700 hover:underline">
+            Manage scenarios
+          </Link>
+          <form action={signOut}>
+            <button className="text-sm text-neutral-500 hover:underline">Sign out</button>
+          </form>
+        </div>
       </div>
 
       <section className="rounded border border-neutral-300 bg-white p-4">
         <h2 className="mb-3 font-medium">Generate a trainee link</h2>
+        {scenarios.length === 0 ? (
+          <p className="text-sm text-neutral-500">
+            No active scenarios yet.{" "}
+            <Link href="/admin/scenarios/new" className="text-blue-700 hover:underline">
+              Create one
+            </Link>{" "}
+            first.
+          </p>
+        ) : (
         <form action={createTraineeLink} className="flex flex-wrap items-end gap-3">
           <div>
             <label className="block text-xs text-neutral-500">Scenario</label>
@@ -69,6 +83,7 @@ export default async function AdminPage() {
             Create link
           </button>
         </form>
+        )}
       </section>
 
       <section className="rounded border border-neutral-300 bg-white">

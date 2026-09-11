@@ -73,7 +73,7 @@ be deployed independently:
 Trainee links (`/t/<token>`) will then work for anyone with the URL — no
 Claude account, no Homeaglow account, no VPN.
 
-## Known limitations (Phase 1–4)
+## Known limitations (Phase 1–5)
 
 This is a multi-phase build-out. Deliberately out of scope for now:
 
@@ -84,10 +84,17 @@ This is a multi-phase build-out. Deliberately out of scope for now:
   not actions a trainee takes — matches how CS actually uses that panel.
   Membership status, credits, manual charges, and dispute status are fully
   interactive and gradable (Phase 3).
-- **Visual design is styled to evoke the real CRM** (color-coded message
-  roles, status pills, an action banner) but is not a pixel-for-pixel clone
-  of the screenshot it's modeled on — it's an original layout in the same
-  spirit, not a recreation of Homeaglow's actual CRM markup.
+- **Some chrome is decorative-only, matching the reference screenshot's
+  look without live function yet**: the search box, "Clear Actions" button,
+  NCW/OCW login shortcuts, and the "edit" link on the membership panel.
+  Everything else that could plausibly be made real was: the message
+  category tabs, date-range filter, per-sender legend (click a name to
+  filter to just their messages), "Scroll to Oldest Action", and "Show All"
+  membership history all actually work against the scenario's real data.
+- A few very Homeaglow-specific internal details from the reference
+  screenshot (payment-processor line items, reschedule/cancel counters,
+  exact job IDs) aren't modeled — they'd need real fields added to the
+  scenario schema first. Ask if you want those added.
 
 ## Project structure
 
